@@ -1,0 +1,20 @@
+# --- Arayüz ---
+customtkinter>=5.2.2
+
+# --- LangChain çekirdeği + yerel LLM (Ollama) ---
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-text-splitters>=0.3.0
+langchain-ollama>=0.2.0
+
+# --- Vektör veritabanı (lokal / persistent mod) ---
+chromadb>=0.5.0
+langchain-chroma>=0.1.4
+
+# --- Geçmiş proje raporlarını okuma ---
+PyPDF2>=3.0.1
+python-docx>=1.1.0
+
+# --- Web arama (ücretsiz, API anahtarsız) ---
+# Not: "duckduckgo-search" paketinin yeni adı "ddgs"dir. search_module.py ikisini de destekler.
+ddgs>=9.0.0

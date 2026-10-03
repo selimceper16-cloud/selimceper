@@ -1,0 +1,11 @@
+Geçmiş TÜBİTAK / Teknofest proje raporlarını (PDF, TXT, MD, DOCX) bu klasöre koyun.
+
+Kategoriye göre alt klasör açarsanız (klasör adı uygulamadaki kategoriyle aynı olmalı),
+arama önce o kategorideki projelere odaklanır:
+
+    gecmis_projeler/Tarım/akilli_sera.pdf
+    gecmis_projeler/Sağlık/proje_raporu.docx
+    gecmis_projeler/genel_proje.txt      -> "Genel" kategorisi
+
+Ardından:  python database_builder.py
+Not: Taranmış (resim) PDF'lerde metin olmadığı için atlanırlar; önce OCR uygulayın.
