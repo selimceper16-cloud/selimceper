@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+chroma_db/
+gecmis_projeler/*
+!gecmis_projeler/BENI_OKU.txt
