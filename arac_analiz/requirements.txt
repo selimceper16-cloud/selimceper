@@ -1,0 +1,14 @@
+# --- Arayüz ---
+streamlit>=1.50.0
+
+# --- Veri çekme (scraper) ---
+# Kurulumdan sonra tarayıcıyı indirmeyi unutmayın:  playwright install chromium
+playwright>=1.45.0
+
+# --- Yapay zeka analizi (Claude API) ---
+anthropic>=1.0.0
+pydantic>=2.7.0
+python-dotenv>=1.0.0
+
+# --- Testler ---
+pytest>=8.0.0

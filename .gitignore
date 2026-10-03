@@ -5,3 +5,5 @@ venv/
 chroma_db/
 gecmis_projeler/*
 !gecmis_projeler/BENI_OKU.txt
+.env
+.pytest_cache/
