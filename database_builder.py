@@ -22,6 +22,7 @@ import hashlib
 import shutil
 import sys
 from pathlib import Path
+from typing import Callable
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -29,6 +30,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 import config
 
 SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx"}
+IGNORED_FILES = {"beni_oku.txt", "readme.txt", "readme.md"}  # klasör açıklamaları proje değildir
+LogFn = Callable[[str], None]
 
 
 # ---------------------------------------------------------------------- #
@@ -87,22 +90,23 @@ def infer_category(path: Path, root: Path) -> str:
 # ---------------------------------------------------------------------- #
 # Ana akış
 # ---------------------------------------------------------------------- #
-def load_documents(root: Path) -> list[Document]:
+def load_documents(root: Path, log: LogFn = print) -> list[Document]:
     docs: list[Document] = []
-    files = sorted(p for p in root.rglob("*") if p.suffix.lower() in SUPPORTED_EXTENSIONS)
+    files = sorted(p for p in root.rglob("*")
+                   if p.suffix.lower() in SUPPORTED_EXTENSIONS and p.name.lower() not in IGNORED_FILES)
     if not files:
-        print(f"[!] '{root}' içinde desteklenen dosya bulunamadı ({', '.join(SUPPORTED_EXTENSIONS)}).")
+        log(f"[!] '{root}' içinde desteklenen dosya bulunamadı ({', '.join(SUPPORTED_EXTENSIONS)}).")
         return docs
 
     for path in files:
         try:
             text = READERS[path.suffix.lower()](path)
         except Exception as exc:  # noqa: BLE001
-            print(f"  [x] {path.name}: okunamadı ({exc})")
+            log(f"  [x] {path.name}: okunamadı ({exc})")
             continue
         text = " ".join(text.split())  # PDF'lerden gelen fazla boşluk/satır sonlarını temizle
         if len(text) < 50:
-            print(f"  [-] {path.name}: metin çok kısa veya taranmış (OCR'sız) PDF, atlandı.")
+            log(f"  [-] {path.name}: metin çok kısa veya taranmış (OCR'sız) PDF, atlandı.")
             continue
         docs.append(Document(
             page_content=text,
@@ -113,27 +117,28 @@ def load_documents(root: Path) -> list[Document]:
                 "file_hash": file_hash(path),
             },
         ))
-        print(f"  [+] {path.relative_to(root)}  ({len(text):,} karakter)")
+        log(f"  [+] {path.relative_to(root)}  ({len(text):,} karakter)")
     return docs
 
 
-def build(root: Path, reset: bool = False) -> None:
+def build(root: Path, reset: bool = False, log: LogFn = print) -> int:
+    """Yeni dosyaları veritabanına ekler; eklenen parça sayısını döner."""
     from langchain_chroma import Chroma
     from langchain_ollama import OllamaEmbeddings
 
     if not root.exists():
         root.mkdir(parents=True)
-        print(f"[i] '{root}' klasörü oluşturuldu. Geçmiş proje dosyalarını içine koyup tekrar çalıştırın.")
-        return
+        log(f"[i] '{root}' klasörü oluşturuldu. Geçmiş proje dosyalarını içine koyup tekrar çalıştırın.")
+        return 0
 
     if reset and config.CHROMA_DIR.exists():
         shutil.rmtree(config.CHROMA_DIR)
-        print(f"[i] Eski veritabanı silindi: {config.CHROMA_DIR}")
+        log(f"[i] Eski veritabanı silindi: {config.CHROMA_DIR}")
 
-    print(f"[1/3] Dosyalar okunuyor: {root}")
-    docs = load_documents(root)
+    log(f"[1/3] Dosyalar okunuyor: {root}")
+    docs = load_documents(root, log)
     if not docs:
-        return
+        return 0
 
     embeddings = OllamaEmbeddings(model=config.EMBED_MODEL, base_url=config.OLLAMA_BASE_URL)
     store = Chroma(
@@ -149,12 +154,12 @@ def build(root: Path, reset: bool = False) -> None:
     new_docs = [d for d in docs if d.metadata["file_hash"] not in known_hashes]
     skipped = len(docs) - len(new_docs)
     if skipped:
-        print(f"[i] {skipped} dosya zaten veritabanında, atlandı.")
+        log(f"[i] {skipped} dosya zaten veritabanında, atlandı.")
     if not new_docs:
-        print("[✓] Eklenecek yeni dosya yok. Veritabanı güncel.")
-        return
+        log("[✓] Eklenecek yeni dosya yok. Veritabanı güncel.")
+        return 0
 
-    print(f"[2/3] {len(new_docs)} dosya parçalanıyor (chunk={config.CHUNK_SIZE}, overlap={config.CHUNK_OVERLAP})")
+    log(f"[2/3] {len(new_docs)} dosya parçalanıyor (chunk={config.CHUNK_SIZE}, overlap={config.CHUNK_OVERLAP})")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=config.CHUNK_SIZE,
         chunk_overlap=config.CHUNK_OVERLAP,
@@ -165,14 +170,15 @@ def build(root: Path, reset: bool = False) -> None:
         chunk.metadata["chunk"] = idx
     ids = [f"{c.metadata['file_hash']}-{i}" for i, c in enumerate(chunks)]
 
-    print(f"[3/3] {len(chunks)} parça için embedding üretilip ChromaDB'ye yazılıyor ({config.EMBED_MODEL})…")
+    log(f"[3/3] {len(chunks)} parça için embedding üretilip ChromaDB'ye yazılıyor ({config.EMBED_MODEL})…")
     batch = 64
     for start in range(0, len(chunks), batch):
         store.add_documents(chunks[start:start + batch], ids=ids[start:start + batch])
-        print(f"      {min(start + batch, len(chunks))}/{len(chunks)}")
+        log(f"      {min(start + batch, len(chunks))}/{len(chunks)}")
 
     total = len(store.get(include=[])["ids"])
-    print(f"[✓] Tamamlandı. Veritabanında toplam {total} parça var → {config.CHROMA_DIR}")
+    log(f"[✓] Tamamlandı. Veritabanında toplam {total} parça var → {config.CHROMA_DIR}")
+    return len(chunks)
 
 
 def main() -> int:
@@ -184,13 +190,9 @@ def main() -> int:
     try:
         build(args.dir.resolve(), reset=args.reset)
     except Exception as exc:  # noqa: BLE001
-        msg = str(exc)
-        if "Connection" in msg or "refused" in msg:
-            print("[x] Ollama'ya bağlanılamadı. 'ollama serve' çalışıyor mu?")
-        elif "not found" in msg.lower():
-            print(f"[x] Embedding modeli bulunamadı. Çalıştırın: ollama pull {config.EMBED_MODEL}")
-        else:
-            print(f"[x] Hata: {msg}")
+        from ai_engine import friendly_error
+
+        print(f"[x] {friendly_error(exc)}")
         return 1
     return 0
 

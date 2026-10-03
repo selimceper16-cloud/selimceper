@@ -1,0 +1,100 @@
+name: Windows Kurulum Dosyası
+
+# Her push'ta Windows 64-bit Setup.exe üretilir ve "Artifacts" bölümüne eklenir.
+# "v1.2.0" gibi bir etiket (tag) push edilirse ayrıca GitHub Releases sayfasında yayınlanır.
+on:
+  push:
+    branches: [main, "claude/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # yalnızca etiketli sürümlerde Release oluşturmak için
+
+concurrency:
+  group: windows-installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            packaging/requirements-build.txt
+
+      - name: Bağımlılıkları kur
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r packaging/requirements-build.txt
+
+      - name: Sürüm numarasını oku
+        id: ver
+        shell: pwsh
+        run: |
+          $v = python -c "import config; print(config.APP_VERSION)"
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "Sürüm: $v"
+
+      - name: PyInstaller ile paketle
+        run: pyinstaller --noconfirm --clean packaging/InovasyonZekasi.spec
+
+      - name: Paketlenmiş exe'yi doğrula (selftest)
+        shell: pwsh
+        run: |
+          $env:INOVASYON_SELFTEST_OUT = "$PWD\selftest_dist.txt"
+          $p = Start-Process -FilePath "dist\InovasyonZekasi\InovasyonZekasi.exe" -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content $env:INOVASYON_SELFTEST_OUT
+          if ($p.ExitCode -ne 0) { throw "Selftest başarısız (çıkış kodu $($p.ExitCode))" }
+
+      - name: Inno Setup kur
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue) -and -not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup -y --no-progress
+          }
+
+      - name: Setup.exe oluştur
+        shell: pwsh
+        run: |
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DAppVersion=${{ steps.ver.outputs.version }}" packaging\installer.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC başarısız" }
+          Get-ChildItem Output
+
+      - name: Kurulumu sessiz modda dene ve kurulu uygulamayı doğrula
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem Output\*.exe | Select-Object -First 1).FullName
+          $dir = "$env:RUNNER_TEMP\InovasyonZekasiTest"
+          $p = Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$dir`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "Kurulum başarısız (çıkış kodu $($p.ExitCode))" }
+          $env:INOVASYON_SELFTEST_OUT = "$PWD\selftest_installed.txt"
+          $p = Start-Process -FilePath "$dir\InovasyonZekasi.exe" -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content $env:INOVASYON_SELFTEST_OUT
+          if ($p.ExitCode -ne 0) { throw "Kurulu uygulama selftest başarısız" }
+          $u = Start-Process -FilePath "$dir\unins000.exe" -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
+          if ($u.ExitCode -ne 0) { throw "Kaldırma başarısız" }
+
+      - name: Setup.exe'yi yükle (Artifacts)
+        uses: actions/upload-artifact@v4
+        with:
+          name: InovasyonZekasi-Kurulum-${{ steps.ver.outputs.version }}
+          path: Output/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: GitHub Release oluştur (yalnızca v* etiketlerinde)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Output/*.exe
+          generate_release_notes: true

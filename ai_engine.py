@@ -121,26 +121,60 @@ class InnovationEngine:
     # ------------------------------------------------------------------ #
     # Sağlık kontrolleri
     # ------------------------------------------------------------------ #
-    def check_ollama(self) -> tuple[bool, str]:
-        """Ollama sunucusunun ayakta ve modelin indirilmiş olduğunu (yerelde) kontrol eder."""
+    def required_models(self) -> list[str]:
+        return [self.model, config.EMBED_MODEL]
+
+    def missing_models(self) -> list[str] | None:
+        """İndirilmemiş modelleri döner; Ollama'ya ulaşılamazsa None döner."""
         try:
             with urllib.request.urlopen(f"{config.OLLAMA_BASE_URL}/api/tags", timeout=3) as resp:
                 data = json.load(resp)
         except (urllib.error.URLError, OSError, ValueError):
-            return False, "Ollama çalışmıyor. Terminalde 'ollama serve' komutunu çalıştırın."
+            return None
 
         names = {m.get("name", "") for m in data.get("models", [])}
         bases = {n.split(":")[0] for n in names}
+        return [m for m in self.required_models() if m not in names and m not in bases]
 
-        def has(model: str) -> bool:
-            return model in names or model in bases
-
-        if not has(self.model):
-            return False, f"Model yok: 'ollama pull {self.model}' komutunu çalıştırın."
+    def check_ollama(self) -> tuple[bool, str]:
+        """Ollama sunucusunun ayakta ve modelin indirilmiş olduğunu (yerelde) kontrol eder."""
+        missing = self.missing_models()
+        if missing is None:
+            return False, ("Ollama çalışmıyor. Ollama uygulamasını başlatın "
+                           "(Başlat menüsü → Ollama) veya 'ollama serve' çalıştırın.")
+        if self.model in missing:
+            return False, f"Model eksik: {self.model} ('Modelleri İndir' butonunu kullanın)."
         msg = f"Ollama hazır • {self.model}"
-        if not has(config.EMBED_MODEL):
-            msg += f" (RAG için: ollama pull {config.EMBED_MODEL})"
+        if config.EMBED_MODEL in missing:
+            msg += f" (RAG için {config.EMBED_MODEL} eksik)"
         return True, msg
+
+    @staticmethod
+    def pull_model(name: str, on_progress: Callable[[str, float | None], None] | None = None) -> None:
+        """Modeli yerel Ollama API'si üzerinden indirir (terminalde 'ollama pull' ile aynı iş).
+
+        on_progress(durum_metni, 0..1 arası oran veya None) ile ilerleme bildirilir.
+        """
+        progress = on_progress or (lambda _s, _f: None)
+        req = urllib.request.Request(
+            f"{config.OLLAMA_BASE_URL}/api/pull",
+            data=json.dumps({"model": name, "stream": True}).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            for raw in resp:
+                if not raw.strip():
+                    continue
+                event = json.loads(raw)
+                if "error" in event:
+                    raise RuntimeError(f"{name} indirilemedi: {event['error']}")
+                total, done = event.get("total"), event.get("completed")
+                frac = done / total if total and done is not None else None
+                progress(event.get("status", ""), frac)
+                if event.get("status") == "success":
+                    return
+        raise RuntimeError(f"{name} indirme işlemi yarıda kesildi.")
 
     def past_project_count(self) -> int:
         try:
@@ -218,7 +252,7 @@ class InnovationEngine:
             rag_context, rag_sources = self.retrieve_past_projects(seviye, kategori)
         except Exception as exc:  # noqa: BLE001
             rag_context, rag_sources = "", []
-            notes.append(f"Geçmiş proje veritabanı okunamadı: {_friendly_error(exc)}")
+            notes.append(f"Geçmiş proje veritabanı okunamadı: {friendly_error(exc)}")
 
         # 2) Güncel trendler
         web_context, web_sources = "", []
@@ -242,7 +276,7 @@ class InnovationEngine:
             for chunk in self.build_chain().stream(variables):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
-            raise RuntimeError(_friendly_error(exc)) from exc
+            raise RuntimeError(friendly_error(exc)) from exc
 
         yield _format_sources(rag_sources, web_sources, notes)
 
@@ -260,14 +294,16 @@ def _format_sources(rag_sources: list[str], web_sources: list[str], notes: list[
     return "\n".join(lines) + "\n"
 
 
-def _friendly_error(exc: Exception) -> str:
+def friendly_error(exc: Exception) -> str:
+    """Teknik hata mesajlarını kullanıcının anlayacağı Türkçe açıklamalara çevirir."""
     msg = str(exc)
     low = msg.lower()
     if "connect" in low or "refused" in low or "connection" in low:
-        return "Ollama'ya bağlanılamadı. 'ollama serve' komutuyla Ollama'yı başlatın."
+        return ("Ollama'ya bağlanılamadı. Ollama uygulamasını başlatın "
+                "(Başlat menüsü → Ollama) veya 'ollama serve' çalıştırın.")
     if "not found" in low and "model" in low:
-        return (f"Model bulunamadı. 'ollama pull {config.LLM_MODEL}' ve "
-                f"'ollama pull {config.EMBED_MODEL}' komutlarını çalıştırın.")
+        return (f"Model bulunamadı. 'Modelleri İndir' butonunu kullanın ya da "
+                f"'ollama pull {config.LLM_MODEL}' ve 'ollama pull {config.EMBED_MODEL}' çalıştırın.")
     return msg
 
 

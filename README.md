@@ -15,10 +15,42 @@ proje fikirleri üreten masaüstü uygulaması. LLM ve vektör veritabanı **tam
 | `search_module.py` | DuckDuckGo (API anahtarsız) ile son 1 yılın trendlerini toplar ve özetler |
 | `database_builder.py` | `gecmis_projeler/` içindeki PDF/TXT/MD/DOCX dosyalarını parçalayıp ChromaDB'ye yazar |
 | `config.py` | Model adları, yollar, kategoriler ve limitler (tek yerden ayar) |
+| `selftest.py` | Paketlenmiş exe'nin bağımlılık doğrulaması (`--selftest`) |
+| `packaging/` | PyInstaller (`.spec`), Inno Setup (`installer.iss`) ve ikon |
 
 Akış: **ChromaDB'den geçmiş projeler (Context 1)** → **DuckDuckGo'dan güncel haberler (Context 2)** → **Ollama**.
 
-## Kurulum
+## Windows'a Kurulum (Setup.exe) — önerilen
+
+Terminal veya Python gerekmez.
+
+1. [Ollama for Windows](https://ollama.com/download/windows)'u kurun.
+2. Kurulum dosyasını indirin:
+   - **Sürümler:** depo sayfasındaki **Releases** bölümünden `InovasyonZekasi-Kurulum-x.y.z.exe`
+   - **veya en son derleme:** **Actions** sekmesi → *Windows Kurulum Dosyası* → en üstteki yeşil çalıştırma →
+     sayfanın altındaki **Artifacts** bölümünden zip'i indirip açın.
+3. `InovasyonZekasi-Kurulum-x.y.z.exe`'yi çalıştırın. Yönetici izni istemez.
+   > İmzasız olduğu için Windows SmartScreen *"Windows bilgisayarınızı korudu"* diyebilir:
+   > **Ek bilgi → Yine de çalıştır**.
+4. Uygulamayı açın. Model eksikse sol alttaki **⬇ Eksik Modelleri İndir** butonuna basın (ilk seferde ~5 GB).
+5. Geçmiş proje raporları için **📁 Proje Klasörünü Aç** → dosyaları kopyalayın → **🔄 Veritabanını Güncelle**.
+
+Kurulu sürümde veriler şuralarda tutulur:
+- Proje raporları: `Belgeler\InovasyonZekasi\gecmis_projeler`
+- Vektör veritabanı ve hata kaydı: `%LOCALAPPDATA%\InovasyonZekasi`
+
+### Kurulum dosyasını kendiniz üretmek
+
+GitHub Actions her push'ta `Setup.exe` üretir; bunun için `.github/workflows/windows-installer.yml`
+dosyasına bakın. `v1.2.0` gibi bir etiket push edilirse kurulum dosyası Releases sayfasında yayınlanır.
+Kendi bilgisayarınızda üretmek için Python 3.12 ve [Inno Setup 6](https://jrsoftware.org/isdl.php)
+kurulu olmalı. Ardından `build_windows.bat` dosyasına çift tıklayın.
+
+Paketlenmiş uygulamanın bütün bağımlılıklarını doğrulamak için:
+`InovasyonZekasi.exe --selftest` komutunu çalıştırın. Sonuç `%LOCALAPPDATA%\InovasyonZekasi\selftest_sonucu.txt`
+dosyasına yazılır.
+
+## Kaynak Koddan Kurulum (geliştiriciler için)
 
 1. [Ollama](https://ollama.com)'yı kurun ve modelleri indirin:
    ```bash
@@ -31,8 +63,9 @@ Akış: **ChromaDB'den geçmiş projeler (Context 1)** → **DuckDuckGo'dan gün
    source .venv/bin/activate      # Windows: .venv\Scripts\activate
    pip install -r requirements.txt
    ```
-3. Geçmiş proje raporlarını `gecmis_projeler/` klasörüne koyup veritabanını oluşturun
-   (yeni dosya ekledikçe tekrar çalıştırın; eklenmiş dosyalar atlanır):
+3. Geçmiş proje raporlarını `gecmis_projeler/` klasörüne koyup veritabanını oluşturun.
+   Yeni dosya ekledikçe tekrar çalıştırın; eklenmiş dosyalar atlanır. Bunu arayüzdeki
+   **🔄 Veritabanını Güncelle** butonuyla da yapabilirsiniz:
    ```bash
    python database_builder.py          # --reset ile sıfırdan kurar
    ```
