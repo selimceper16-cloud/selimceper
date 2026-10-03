@@ -60,3 +60,10 @@ Kategoriler ve limitler `config.py` içindedir.
 - İnternete giden **tek** şey, web araması açıksa DuckDuckGo'ya gönderilen kategori sorgusudur
   (ör. *"agriculture agritech smart farming innovation breakthrough"*). Raporlarınız veya üretilen
   fikirler dışarı gönderilmez. Arayüzdeki anahtarla web araması tamamen kapatılabilir.
+
+---
+
+## 🚗 Ek proje: Fiyat-Performans Araç Öneri ve Analiz
+
+Bütçeye göre ikinci el araç ilanlarını toplayıp Claude ile analiz eden Streamlit uygulaması
+[`arac_analiz/`](arac_analiz/) klasöründedir. Kurulum ve kullanım için [arac_analiz/README.md](arac_analiz/README.md).
